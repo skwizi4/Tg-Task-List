@@ -1,0 +1,534 @@
+package domain
+
+import (
+	"encoding/json"
+	"errors"
+	"reflect"
+	"strconv"
+	"strings"
+)
+
+const (
+	RegistrationStepStart    = "RegistrationStepStart"
+	RegistrationStepName     = "StepName"
+	RegistrationStepPassword = "StepPassword"
+
+	LoginStepStart    = "LoginStepStart"
+	LoginStepPassword = "StepPassword"
+
+	AddingTaskNameStep        = "AddingTaskNameStep"
+	AddingTaskDescriptionStep = "AddingTaskDescription"
+	AddingTaskDateStep        = "AddingTaskDate"
+)
+
+// ActiveUsers---------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+type ActiveUser struct {
+	ChatID                 int64
+	Name                   string
+	SpreadSheetID          string
+	Tasks                  []Task
+	NotificationFrequency  float64
+	IsSendingNotifications bool
+	StopNotificationChan   chan struct{}
+}
+
+type ActiveUsers []ActiveUser
+
+// ProcessAddTask---------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+type ProcessAddTask struct {
+	SpreadSheetId   string
+	Range           string
+	TaskName        string
+	TaskDescription string
+	TaskDate        string
+	Step            string
+	ChatID          int64
+}
+
+type ProcessingAddingTasks []ProcessAddTask
+
+// ProcessingRenamingTask---------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+type ProcessingRenamingTask struct {
+	SpreadSheetId     string
+	SpreadSheetCellId string
+	RenameName        string
+	Step              string
+	ChatID            int64
+}
+type ProcessingRenamingTasks []ProcessingRenamingTask
+
+// ProcessingChangingDescriptionTasks---------------------------------------------------------------------------------------------------------------------------------------------------------------!
+
+type ProcessingChangingDescriptionTask struct {
+	SpreadSheetId     string
+	SpreadSheetCellId string
+	ChangeDescription string
+	ChatID            int64
+}
+type ProcessingChangingDescriptionTasks []ProcessingChangingDescriptionTask
+
+// ProcessingChangingDataTask---------------------------------------------------------------------------------------------------------------------------------------------------------------!
+
+type ProcessingChangingDataTask struct {
+	SpreadSheetId     string
+	SpreadSheetCellId string
+	ChangeData        string
+	ChatID            int64
+}
+type ProcessingChangingDataTasks []ProcessingChangingDataTask
+
+// ProcessingChangingStatusTask!---------------------------------------------------------------------------------------------------------------------------------------------------------------!
+
+type ProcessingChangingStatusTask struct {
+	SpreadSheetId      string
+	SpreadSheetCellId  string
+	TaskStatusSwitcher bool
+	ChatID             int64
+}
+type ProcessingChangingStatusTasks []ProcessingChangingStatusTask
+
+//ToDoList !---------------------------------------------------------------------------------------------------------------------------------------------------------------!
+
+type Task struct {
+	Range       string
+	Name        string
+	Description string
+	Status      string
+	Date        string
+}
+type ToDoList struct {
+	Tasks  Task
+	ChatID int64
+}
+type GettingTables []ToDoList
+
+// ProcessingRegistrationUser!---------------------------------------------------------------------------------------------------------------------------------------------------------------!
+
+type User struct {
+	Name                     string
+	Password                 string
+	SpreadSheetID            string
+	FrequencyOfNotifications float64
+	IsSendNotification       bool
+}
+type ProcessingRegistrationUser struct {
+	ChatID int64
+	Step   string
+	User   User
+}
+
+type ProcessingRegistrationUsers []ProcessingRegistrationUser
+
+// ProcessLoginUser!---------------------------------------------------------------------------------------------------------------------------------------------------------------!
+
+type ProcessLoginUser struct {
+	ChatID   int64
+	Step     string
+	Username string
+}
+type ProcessLoginUsers []ProcessLoginUser
+
+// FindUserIndex -----------------------------------------------------------------------------------------------------------------------------------
+
+func FindUserIndex(users interface{}, chatID int64) int {
+	v := reflect.ValueOf(users)
+	if v.Kind() != reflect.Slice {
+		return -1
+	}
+
+	for i := 0; i < v.Len(); i++ {
+		user := v.Index(i)
+		chatIDField := user.FieldByName("ChatID")
+		if !chatIDField.IsValid() || chatIDField.Kind() != reflect.Int64 {
+			continue
+		}
+		if chatIDField.Int() == chatID {
+			return i
+		}
+	}
+
+	return -1
+}
+
+// ActiveUsers -----------------------------------------------------------------------------------------------------------------------------------
+
+func (a *ActiveUsers) AddTasks(ChatID int64, tasks []Task) {
+	if idx := FindUserIndex(*a, ChatID); idx != -1 {
+		(*a)[idx].Tasks = tasks
+	} else {
+		// Если пользователь не найден, добавляем нового
+		*a = append(*a, ActiveUser{ChatID: ChatID, Tasks: tasks})
+	}
+}
+
+func (a *ActiveUsers) Delete(ChatID int64) {
+	if idx := FindUserIndex(*a, ChatID); idx != -1 {
+		*a = append((*a)[:idx], (*a)[idx+1:]...)
+	}
+}
+
+func (a *ActiveUsers) GetOrCreate(ChatID int64, name string) ActiveUser {
+	if idx := FindUserIndex(*a, ChatID); idx != -1 {
+		return (*a)[idx]
+	}
+	newUser := ActiveUser{
+		ChatID: ChatID,
+		Name:   name,
+	}
+	*a = append(*a, newUser)
+	return newUser
+}
+
+func (a *ActiveUsers) IfExist(ChatID int64) bool {
+	if idx := FindUserIndex(*a, ChatID); idx != -1 {
+		return true
+	}
+	return false
+}
+
+func (a *ActiveUsers) IsSendingNotifications(ChatID int64, value bool) {
+	if idx := FindUserIndex(*a, ChatID); idx != -1 {
+		(*a)[idx].IsSendingNotifications = value
+	}
+}
+
+func (a *ActiveUsers) SetChatId(ChatID int64) {
+	if idx := FindUserIndex(*a, ChatID); idx != -1 {
+		(*a)[idx].ChatID = ChatID
+	}
+}
+
+func (a *ActiveUsers) SetNotificationFrequency(ChatID int64, notificationFrequency float64) {
+	if idx := FindUserIndex(*a, ChatID); idx != -1 {
+		(*a)[idx].NotificationFrequency = notificationFrequency
+	}
+}
+
+func (a *ActiveUsers) SetNotifications(ChatID int64, IsSend bool) {
+	if idx := FindUserIndex(*a, ChatID); idx != -1 {
+		(*a)[idx].IsSendingNotifications = IsSend
+	}
+}
+
+func (a *ActiveUsers) SetSpreadSheetId(ChatID int64, spreadSheetId string) {
+	if idx := FindUserIndex(*a, ChatID); idx != -1 {
+		(*a)[idx].SpreadSheetID = spreadSheetId
+	}
+}
+
+func (a *ActiveUsers) UpdateUserNotificationFrequency(chatID int64, newFrequency float64) {
+	for i, user := range *a {
+		if user.ChatID == chatID {
+			(*a)[i].NotificationFrequency = newFrequency
+			(*a)[i].IsSendingNotifications = true
+			if user.StopNotificationChan != nil {
+				user.StopNotificationChan <- struct{}{}
+			} else {
+				user.StopNotificationChan = make(chan struct{})
+			}
+			break
+		}
+	}
+}
+
+// ProcessingRegistrationUsers!---------------------------------------------------------------------------------------------------------------------------------------------------------------!
+
+func (p *ProcessingRegistrationUsers) SetSendNotifications(ChatID int64, value bool) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].User.IsSendNotification = value
+	}
+}
+
+func (p *ProcessingRegistrationUsers) SetNotificationFrequency(ChatID int64, Frequency float64) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].User.FrequencyOfNotifications = Frequency
+	}
+}
+
+func (p *ProcessingRegistrationUsers) SetSpreadSheetID(ChatID int64, spreadSheetID string) {
+
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].User.SpreadSheetID = spreadSheetID
+	}
+}
+
+func (p *ProcessingRegistrationUsers) BinaryMarshal(ChatID int64) ([]byte, error) {
+	Process := *p
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		return json.Marshal(Process[idx].User)
+	}
+	return nil, errors.New("cant reg user")
+}
+
+func (p *ProcessingRegistrationUsers) UpdateRegistrationStep(ChatID int64, step string) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].Step = step
+	}
+}
+
+func (p *ProcessingRegistrationUsers) SetName(ChatID int64, name string) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].User.Name = name
+	}
+}
+
+func (p *ProcessingRegistrationUsers) SetPassword(ChatID int64, password string) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].User.Password = password
+	}
+}
+
+func (p *ProcessingRegistrationUsers) IfExist(ChatID int64) bool {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		return true
+	}
+	return false
+}
+
+func (p *ProcessingRegistrationUsers) GetOrCreate(ChatID int64) ProcessingRegistrationUser {
+	for _, usr := range *p {
+		if usr.ChatID == ChatID {
+			return usr
+		}
+	}
+	NewUser := ProcessingRegistrationUser{
+		ChatID: ChatID,
+		Step:   RegistrationStepStart,
+	}
+	*p = append(*p, NewUser)
+	return NewUser
+}
+
+func (p *ProcessingRegistrationUsers) Delete(ChatID int64) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		*p = append((*p)[:idx], (*p)[idx+1:]...)
+	}
+}
+
+// ProcessLoginUsers !------------------------------------------------------------------------------------------------------------!//
+
+func (p *ProcessLoginUsers) UpdateStep(Step string, chatID int64) {
+	if idx := FindUserIndex(*p, chatID); idx != -1 {
+		(*p)[idx].Step = Step
+	}
+}
+func (p *ProcessLoginUsers) IfExist(ChatID int64) bool {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		return true
+	}
+	return false
+}
+func (p *ProcessLoginUsers) GetOrCreate(ChatID int64) ProcessLoginUser {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		return (*p)[idx]
+	}
+	NewUser := ProcessLoginUser{
+		ChatID: ChatID,
+		Step:   LoginStepStart,
+	}
+	*p = append(*p, NewUser)
+	return NewUser
+}
+
+func (p *ProcessLoginUsers) Unmarshal(data []byte) (User, error) {
+	var UserStruct User
+	if err := json.Unmarshal(data, &UserStruct); err != nil {
+		return User{}, err
+	}
+	return UserStruct, nil
+}
+func (p *ProcessLoginUsers) Delete(ChatID int64) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		*p = append((*p)[:idx], (*p)[idx+1:]...)
+	}
+}
+
+// ProcessingRenamingTasks!---------------------------------------------------------------------------------------------------------------------------------------------------------------!
+
+func (p *ProcessingRenamingTasks) AddNewName(ChatID int64, NewName string) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].RenameName = NewName
+	}
+}
+
+func (p *ProcessingRenamingTasks) IfExist(ChatID int64) bool {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		return true
+	}
+	return false
+}
+func (p *ProcessingRenamingTasks) GetOrCreate(ChatId int64) ProcessingRenamingTask {
+	if idx := FindUserIndex(*p, ChatId); idx != -1 {
+		return (*p)[idx]
+	}
+	NewProcess := ProcessingRenamingTask{
+		ChatID: ChatId,
+	}
+	*p = append(*p, NewProcess)
+	return NewProcess
+}
+func (p *ProcessingRenamingTasks) SetSpreadSheetId(ChatId int64, SpreadSheetId string) {
+	if idx := FindUserIndex(*p, ChatId); idx != -1 {
+		(*p)[idx].SpreadSheetId = SpreadSheetId
+	}
+}
+
+func (p *ProcessingRenamingTasks) AddSpreadSheetCellId(ChatID int64, cellId string) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].SpreadSheetCellId = cellId
+	}
+}
+func (p *ProcessingRenamingTasks) Delete(ChatID int64) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		*p = append((*p)[:idx], (*p)[idx+1:]...)
+	}
+}
+
+// ProcessingChangingDescriptionTasks-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+func (p *ProcessingChangingDescriptionTasks) GetOrCreate(ChatID int64) ProcessingChangingDescriptionTask {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		return (*p)[idx]
+	}
+	NewProcess := ProcessingChangingDescriptionTask{
+		ChatID: ChatID,
+	}
+	*p = append(*p, NewProcess)
+	return NewProcess
+}
+func (p *ProcessingChangingDescriptionTasks) SetSpreadSheetId(ChatID int64, SpreadSheetId string) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].SpreadSheetId = SpreadSheetId
+	}
+}
+func (p *ProcessingChangingDescriptionTasks) IfExist(ChatID int64) bool {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		return true
+	}
+	return false
+}
+func (p *ProcessingChangingDescriptionTasks) AddNewDescription(ChatID int64, NewDescription string) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].ChangeDescription = NewDescription
+	}
+}
+
+func (p *ProcessingChangingDescriptionTasks) AddSpreadSheetCellId(ChatID int64, cellId string) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].SpreadSheetCellId = cellId
+	}
+}
+func (p *ProcessingChangingDescriptionTasks) Delete(ChatID int64) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		*p = append((*p)[:idx], (*p)[idx+1:]...)
+	}
+}
+
+// ProcessingChangingDataTasks-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+func (p *ProcessingChangingDataTasks) GetOrCreate(ChatID int64) ProcessingChangingDataTask {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		return (*p)[idx]
+	}
+	NewProcess := ProcessingChangingDataTask{
+		ChatID: ChatID,
+	}
+	*p = append(*p, NewProcess)
+	return NewProcess
+}
+func (p *ProcessingChangingDataTasks) SetSpreadSheetId(ChatID int64, SpreadSheetId string) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].SpreadSheetId = SpreadSheetId
+	}
+}
+func (p *ProcessingChangingDataTasks) IfExist(ChatID int64) bool {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		return true
+	}
+	return false
+}
+func (p *ProcessingChangingDataTasks) AddNewData(ChatID int64, NewData string) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].ChangeData = NewData
+	}
+}
+
+func (p *ProcessingChangingDataTasks) AddSpreadSheetCellId(ChatID int64, cellId string) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].SpreadSheetCellId = cellId
+	}
+}
+func (p *ProcessingChangingDataTasks) Delete(ChatID int64) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		*p = append((*p)[:idx], (*p)[idx+1:]...)
+	}
+}
+
+//Processing Adding Task-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+func (p *ProcessingAddingTasks) GetOrCreate(ChatID int64) ProcessAddTask {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		return (*p)[idx]
+	}
+	NewProcess := ProcessAddTask{
+		ChatID: ChatID,
+	}
+	*p = append(*p, NewProcess)
+	return NewProcess
+}
+func (p *ProcessingAddingTasks) IfExist(ChatID int64) bool {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		return true
+	}
+	return false
+}
+func (p *ProcessingAddingTasks) SetTaskName(ChatID int64, taskName string) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].TaskName = taskName
+	}
+
+}
+
+func (p *ProcessingAddingTasks) SetTaskDescription(ChatID int64, taskDescription string) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].TaskDescription = taskDescription
+	}
+}
+func (p *ProcessingAddingTasks) SetTaskDate(ChatID int64, taskDate string) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].TaskDate = taskDate
+	}
+}
+func (p *ProcessingAddingTasks) SetSpreadSheetId(ChatID int64, SpreadSheetId string) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].SpreadSheetId = SpreadSheetId
+	}
+}
+func (p *ProcessingAddingTasks) Delete(ChatID int64) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		*p = append((*p)[:idx], (*p)[idx+1:]...)
+	}
+}
+func (p *ProcessingAddingTasks) SetRangeSheet(ChatID int64, taskRange string) error {
+	parts := strings.Split(taskRange, ":")
+	Number := strings.Split(parts[0], "A")
+	num, err := strconv.Atoi(Number[1])
+	if err != nil {
+		return err
+	}
+	num++
+	RangeSheetId := strconv.Itoa(num)
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].Range = RangeSheetId
+	}
+	return nil
+}
+func (p *ProcessingAddingTasks) UpdateStep(ChatID int64, step string) {
+	if idx := FindUserIndex(*p, ChatID); idx != -1 {
+		(*p)[idx].Step = step
+	}
+
+}
