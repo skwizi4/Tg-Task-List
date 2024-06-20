@@ -167,17 +167,18 @@ func (a *App) ListenTgBot() {
 	})
 
 	a.bot.Handle(tele.OnText, func(msg *tele.Message) {
-		if a.ProcessingRegistrationUsers.IfExist(msg.Chat.ID) {
+		switch {
+		case a.ProcessingRegistrationUsers.IfExist(msg.Chat.ID):
 			go a.tgHandler.RegistrationHandler(msg)
-		} else if a.ProcessLoginUsers.IfExist(msg.Chat.ID) {
+		case a.ProcessLoginUsers.IfExist(msg.Chat.ID):
 			go a.tgHandler.LoginHandler(msg)
-		} else if a.ProcessingRenamingTasks.IfExist(msg.Chat.ID) {
+		case a.ProcessingRenamingTasks.IfExist(msg.Chat.ID):
 			go a.tgHandler.RenamingTaskHandler(msg)
-		} else if a.ProcessingChangingDescriptionTasks.IfExist(msg.Chat.ID) {
+		case a.ProcessingChangingDescriptionTasks.IfExist(msg.Chat.ID):
 			go a.tgHandler.ChangingDescriptionHandler(msg)
-		} else if a.ProcessingChangingDataTasks.IfExist(msg.Chat.ID) {
+		case a.ProcessingChangingDataTasks.IfExist(msg.Chat.ID):
 			go a.tgHandler.ChangingDataHandler(msg)
-		} else if a.ProcessingAddingTasks.IfExist(msg.Chat.ID) {
+		case a.ProcessingAddingTasks.IfExist(msg.Chat.ID):
 			go a.tgHandler.AddingTaskHandler(msg)
 		}
 	})
